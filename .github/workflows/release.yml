@@ -7,6 +7,77 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: not-locking.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: not-locking
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: not-locking
+
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          target: ${{ matrix.target }}
+          
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
+          
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+          
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/not-locking.exe
+            artifacts/not-locking
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Update Version
+        run: |
+          # 获取当前版本号
+          VERSION=$(grep -m 1 '^version = ' Cargo.toml | cut -d '"' -f 2)
+          
+          # 分割版本号
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          
+          # 增加补丁版本号
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="$major.$minor.$NEW_PATCH"
+          
+          # 更新 Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          
+          # 提交更改
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add Cargo.toml
+          git commit -m "Bump version to $NEW_VERSION"
+          git push
