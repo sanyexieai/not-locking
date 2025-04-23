@@ -1,14 +1,38 @@
 name: Release
 
-on:
-  push:
-    tags:
-      - 'v*.*.*'
+on: push
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: not-locking.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: not-locking
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: not-locking
+
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Echo
-        run: echo "Hello World"
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          target: ${{ matrix.target }}
+          
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
